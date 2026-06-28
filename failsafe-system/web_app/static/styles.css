@@ -1,0 +1,98 @@
+.panel {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.95));
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  box-shadow: 0 20px 45px rgba(2, 6, 23, 0.45);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.panel-header h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+
+.status-badge {
+  min-width: 240px;
+  border: 1px solid transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.status-safe {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #6ee7b7;
+}
+
+.status-halt {
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fca5a5;
+  animation: pulse-halt 1.2s ease-in-out infinite;
+}
+
+.status-init {
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.35);
+  color: #67e8f9;
+}
+
+@keyframes pulse-halt {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+
+.metric-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+}
+
+.metric-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.metric-value {
+  margin-top: 0.35rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.log-box {
+  height: 220px;
+  overflow-y: auto;
+  background: rgba(2, 6, 23, 0.85);
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+  line-height: 1.55;
+}
+
+.log-box p {
+  margin-bottom: 0.45rem;
+  border-left: 2px solid rgba(34, 211, 238, 0.35);
+  padding-left: 0.55rem;
+}
+
+#live-frame {
+  display: none;
+}
+
+#live-frame.visible {
+  display: block;
+}
