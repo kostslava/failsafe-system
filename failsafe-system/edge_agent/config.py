@@ -4,7 +4,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
-    camera_device: str = os.getenv("CAMERA_DEVICE", "/dev/video0")
+    # App Lab injects VIDEO_DEVICE; CAMERA_DEVICE overrides if set explicitly.
+    camera_device: str = os.getenv(
+        "CAMERA_DEVICE", os.getenv("VIDEO_DEVICE", "/dev/video0")
+    )
     camera_width: int = int(os.getenv("CAMERA_WIDTH", "640"))
     camera_height: int = int(os.getenv("CAMERA_HEIGHT", "480"))
 

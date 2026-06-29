@@ -5,62 +5,112 @@
 static constexpr int ROWS = 8;
 static constexpr int COLS = 13;
 static constexpr int FRAME_SIZE = ROWS * COLS;
+static constexpr int CHAR_WIDTH = 6;
+static constexpr int GLYPH_ROWS = 7;
+static constexpr unsigned long SCROLL_MS = 180;
 
 ArduinoLEDMatrix matrix;
 uint8_t frame[FRAME_SIZE];
 
 enum DisplayMode : uint8_t {
-  MODE_OK = 0,
+  MODE_SCROLL = 0,
   MODE_THINKING = 1,
-  MODE_FAIL = 2,
 };
 
-volatile DisplayMode currentMode = MODE_OK;
+volatile DisplayMode currentMode = MODE_SCROLL;
+char scrollText[16] = "SAFE";
 char serialLine[32];
 uint8_t serialLineLen = 0;
 
 unsigned long lastAnimTickMs = 0;
-unsigned long lastFailFlashMs = 0;
 uint8_t spinnerStep = 0;
-bool failFlashOn = false;
+int scrollOffset = 0;
 
-static const uint8_t PATTERN_CHECKMARK[FRAME_SIZE] = {
-  0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 255, 0, 255, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0,
-  0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 255, 0, 0,
-  0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0,
-  0, 0, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 0,
-  0, 0, 0, 0, 0, 255, 0, 255, 255, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 255, 255, 255, 0, 0, 0, 0,
+struct Glyph {
+  char letter;
+  uint8_t columns[5];
 };
 
-static const uint8_t PATTERN_X[FRAME_SIZE] = {
-  255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255,
-  0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0,
-  0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0,
-  0, 0, 0, 255, 0, 0, 0, 0, 0, 255, 0, 0, 0,
-  0, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 255, 0, 255, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+static const Glyph FONT[] = {
+  {'A', {0x7E, 0x11, 0x11, 0x11, 0x7E}},
+  {'D', {0x7F, 0x41, 0x41, 0x41, 0x7F}},
+  {'E', {0x7F, 0x49, 0x49, 0x49, 0x41}},
+  {'F', {0x7F, 0x09, 0x09, 0x09, 0x01}},
+  {'H', {0x7F, 0x08, 0x08, 0x08, 0x7F}},
+  {'L', {0x7F, 0x01, 0x01, 0x01, 0x01}},
+  {'S', {0x46, 0x49, 0x49, 0x49, 0x31}},
+  {'T', {0x01, 0x01, 0x7F, 0x01, 0x01}},
+  {' ', {0x00, 0x00, 0x00, 0x00, 0x00}},
 };
 
 void clearFrame() {
   memset(frame, 0, FRAME_SIZE);
 }
 
-void blitPattern(const uint8_t *pattern, uint8_t brightness) {
-  for (int i = 0; i < FRAME_SIZE; i++) {
-    frame[i] = pattern[i] ? brightness : 0;
+const uint8_t *lookupGlyph(char letter) {
+  for (const Glyph &glyph : FONT) {
+    if (glyph.letter == letter) {
+      return glyph.columns;
+    }
   }
+  return FONT[8].columns;
+}
+
+void drawGlyph(int startCol, char letter) {
+  const uint8_t *columns = lookupGlyph(letter);
+  for (int col = 0; col < 5; col++) {
+    uint8_t bits = columns[col];
+    for (int row = 0; row < GLYPH_ROWS; row++) {
+      if (bits & (1 << row)) {
+        int targetRow = row + 1;
+        int targetCol = startCol + col;
+        if (targetRow >= 0 && targetRow < ROWS && targetCol >= 0 && targetCol < COLS) {
+          frame[targetRow * COLS + targetCol] = 255;
+        }
+      }
+    }
+  }
+}
+
+void drawMessageAt(int startCol, const char *text) {
+  int x = startCol;
+  for (int i = 0; text[i] != '\0'; i++) {
+    drawGlyph(x, text[i]);
+    x += CHAR_WIDTH;
+  }
+}
+
+int messagePixelWidth() {
+  return static_cast<int>(strlen(scrollText)) * CHAR_WIDTH;
+}
+
+void drawScrollingText() {
+  clearFrame();
+  const int width = messagePixelWidth();
+  if (width <= 0) {
+    matrix.draw(frame);
+    return;
+  }
+
+  const int loopWidth = width + COLS;
+  const int offset = scrollOffset % loopWidth;
+
+  drawMessageAt(COLS - offset, scrollText);
+  drawMessageAt(COLS - offset + width + CHAR_WIDTH, scrollText);
+  matrix.draw(frame);
+}
+
+void setScrollMessage(const char *text) {
+  strncpy(scrollText, text, sizeof(scrollText) - 1);
+  scrollText[sizeof(scrollText) - 1] = '\0';
+  scrollOffset = 0;
+  currentMode = MODE_SCROLL;
+  drawScrollingText();
 }
 
 void applyCommand(const char *command) {
   if (strcmp(command, "STATUS_OK") == 0) {
-    currentMode = MODE_OK;
-    blitPattern(PATTERN_CHECKMARK, 255);
-    matrix.draw(frame);
+    setScrollMessage("SAFE");
     return;
   }
 
@@ -72,11 +122,7 @@ void applyCommand(const char *command) {
   }
 
   if (strcmp(command, "STATUS_FAIL") == 0) {
-    currentMode = MODE_FAIL;
-    failFlashOn = true;
-    lastFailFlashMs = millis();
-    blitPattern(PATTERN_X, 255);
-    matrix.draw(frame);
+    setScrollMessage("HALTED");
   }
 }
 
@@ -128,10 +174,6 @@ void drawSpinner(uint8_t step) {
 void updateAnimation() {
   unsigned long now = millis();
 
-  if (currentMode == MODE_OK) {
-    return;
-  }
-
   if (currentMode == MODE_THINKING) {
     if (now - lastAnimTickMs >= 120) {
       lastAnimTickMs = now;
@@ -141,17 +183,10 @@ void updateAnimation() {
     return;
   }
 
-  if (currentMode == MODE_FAIL) {
-    if (now - lastFailFlashMs >= 250) {
-      lastFailFlashMs = now;
-      failFlashOn = !failFlashOn;
-      if (failFlashOn) {
-        blitPattern(PATTERN_X, 255);
-      } else {
-        clearFrame();
-      }
-      matrix.draw(frame);
-    }
+  if (now - lastAnimTickMs >= SCROLL_MS) {
+    lastAnimTickMs = now;
+    scrollOffset++;
+    drawScrollingText();
   }
 }
 
@@ -163,9 +198,7 @@ void setup() {
   Bridge.begin();
   Bridge.provide_safe("status_command", handleStatusCommand);
 
-  currentMode = MODE_OK;
-  blitPattern(PATTERN_CHECKMARK, 255);
-  matrix.draw(frame);
+  setScrollMessage("SAFE");
 }
 
 void loop() {

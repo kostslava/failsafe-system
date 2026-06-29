@@ -3,106 +3,137 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vision-Loop FailSafe</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            slate: { 950: "#020617" },
-            accent: { cyan: "#22d3ee", green: "#34d399", red: "#f87171" },
-          },
-          fontFamily: {
-            sans: ["IBM Plex Sans", "ui-sans-serif", "system-ui", "sans-serif"],
-            mono: ["IBM Plex Mono", "ui-monospace", "monospace"],
-          },
-        },
-      },
-    };
-  </script>
+  <title>FailSafe — Print Monitor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
-  <div class="max-w-7xl mx-auto px-4 py-6 space-y-6">
-    <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-5">
-      <div>
-        <p class="text-xs uppercase tracking-[0.25em] text-cyan-400 font-mono">Bambu A1 · Cerebras Gemma 4</p>
-        <h1 class="text-3xl font-bold tracking-tight mt-1">Vision-Loop FailSafe</h1>
-        <p class="text-slate-400 text-sm mt-1">Closed-loop physical monitoring command center</p>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <p class="brand-kicker">Vision-Loop FailSafe</p>
+          <h1 class="brand-title">Print Safety Monitor</h1>
+        </div>
       </div>
-      <div id="status-badge" class="status-badge status-safe px-6 py-3 rounded-xl text-lg font-semibold text-center">
-        INITIALIZING
+      <div class="topbar-meta">
+        <span class="chip chip--muted">Bambu A1</span>
+        <span class="chip chip--muted">Gemma 4 · Cerebras</span>
+      </div>
+      <div class="topbar-actions">
+        <button id="reset-btn" type="button" class="btn btn--primary hidden" disabled>
+          Resume monitoring
+        </button>
+        <div id="status-badge" class="status-pill status-pill--init">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span class="status-label">Initializing</span>
+        </div>
       </div>
     </header>
 
-    <main class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <section class="xl:col-span-2 panel">
-        <div class="panel-header">
-          <h2>Live Viewport</h2>
-          <span id="updated-at" class="text-xs text-slate-500 font-mono">—</span>
-        </div>
-        <div class="aspect-video bg-slate-900 rounded-lg overflow-hidden border border-slate-800 relative">
-          <img id="live-frame" alt="Latest analyzed frame" class="w-full h-full object-cover" />
-          <div id="frame-placeholder" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
-            Waiting for first frame...
+    <main class="layout">
+      <section class="panel panel--feed">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Live feed</h2>
+            <p class="panel-desc">USB camera · continuous stream</p>
           </div>
-        </div>
-        <p id="analysis-text" class="mt-4 text-slate-300 text-sm leading-relaxed"></p>
-      </section>
-
-      <section class="space-y-6">
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Print Telemetry</h2>
-            <span class="text-xs text-slate-500">Bambu A1 MQTT</span>
-          </div>
-          <div class="flex items-end justify-between mb-2">
-            <span class="text-4xl font-bold font-mono" id="progress-value">0%</span>
-            <span id="print-status" class="text-xs uppercase tracking-wider text-slate-400">nominal</span>
-          </div>
-          <div class="h-3 bg-slate-800 rounded-full overflow-hidden">
-            <div id="progress-bar" class="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-500" style="width: 0%"></div>
-          </div>
+          <time id="updated-at" class="panel-time">—</time>
         </div>
 
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Cerebras Performance</h2>
-            <span class="text-xs text-slate-500">time_info</span>
+        <div id="viewport" class="viewport">
+          <img id="live-stream" src="/stream.mjpg" alt="Live print bed camera" />
+          <div id="snapshot-aura" class="snapshot-aura" aria-hidden="true"></div>
+          <div id="analyzing-badge" class="scan-badge hidden">
+            <span class="scan-badge-dot"></span>
+            Scanning
           </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="metric-card">
-              <p class="metric-label">Time to First Token</p>
-              <p class="metric-value" id="metric-ttft">—</p>
-            </div>
-            <div class="metric-card">
-              <p class="metric-label">Tokens / Second</p>
-              <p class="metric-value" id="metric-tps">—</p>
-            </div>
-            <div class="metric-card">
-              <p class="metric-label">Completion Time</p>
-              <p class="metric-value" id="metric-completion">—</p>
-            </div>
-            <div class="metric-card">
-              <p class="metric-label">End-to-End Latency</p>
-              <p class="metric-value" id="metric-e2e">—</p>
-            </div>
+          <div id="frame-placeholder" class="viewport-placeholder">
+            <span>Connecting to camera…</span>
           </div>
+          <div class="viewport-corner viewport-corner--tl"></div>
+          <div class="viewport-corner viewport-corner--tr"></div>
+          <div class="viewport-corner viewport-corner--bl"></div>
+          <div class="viewport-corner viewport-corner--br"></div>
+        </div>
+
+        <div class="analysis-block">
+          <p class="analysis-label">Latest assessment</p>
+          <p id="analysis-text" class="analysis-body">Waiting for first inference cycle.</p>
         </div>
       </section>
+
+      <aside class="sidebar">
+        <section class="panel panel--compact">
+          <div class="panel-head panel-head--tight">
+            <h2 class="panel-title">Print job</h2>
+            <span id="print-status" class="chip chip--neutral">nominal</span>
+          </div>
+          <div class="progress-display">
+            <span id="progress-value" class="progress-value">0%</span>
+            <span class="progress-caption">completion</span>
+          </div>
+          <div class="progress-track">
+            <div id="progress-bar" class="progress-fill"></div>
+          </div>
+        </section>
+
+        <section class="panel panel--compact">
+          <div class="panel-head panel-head--tight">
+            <h2 class="panel-title">Inference</h2>
+            <span class="chip chip--muted">latency</span>
+          </div>
+          <dl class="metric-grid">
+            <div class="metric">
+              <dt>First token</dt>
+              <dd id="metric-ttft">—</dd>
+            </div>
+            <div class="metric">
+              <dt>Tokens / sec</dt>
+              <dd id="metric-tps">—</dd>
+            </div>
+            <div class="metric">
+              <dt>Completion</dt>
+              <dd id="metric-completion">—</dd>
+            </div>
+            <div class="metric">
+              <dt>End-to-end</dt>
+              <dd id="metric-e2e">—</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel panel--compact panel--stack">
+          <div class="stat-row">
+            <span class="stat-label">Loop interval</span>
+            <span class="stat-value">4s</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Action on failure</span>
+            <span class="stat-value">MQTT pause</span>
+          </div>
+        </section>
+      </aside>
     </main>
 
-    <section class="panel">
-      <div class="panel-header">
-        <h2>AI Inference Log</h2>
-        <span class="text-xs text-slate-500">Gemma 4 analysis stream</span>
+    <section class="panel panel--log">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Event log</h2>
+          <p class="panel-desc">Inference history and system actions</p>
+        </div>
       </div>
-      <div id="ai-log" class="log-box font-mono text-xs text-slate-300"></div>
+      <div id="ai-log" class="log-list"></div>
     </section>
+
+    <footer class="footer">
+      <span>Arduino Uno Q edge agent</span>
+      <span class="footer-sep">·</span>
+      <span>Gemma 4 × Cerebras Hackathon</span>
+    </footer>
   </div>
 
   <script src="/static/app.js"></script>

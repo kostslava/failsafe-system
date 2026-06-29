@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from cerebras.cloud.sdk import Cerebras
 
@@ -28,7 +28,8 @@ SYSTEM_PROMPT = (
     "You are a 3D printer vision safety monitor. Inspect the webcam image of an "
     "active Bambu Lab A1 print bed. Detect spaghetti, detached prints, severe "
     "layer shifts, nozzle collisions, fire hazards, or other critical failures. "
-    "Return only structured JSON matching the schema."
+    "Return only structured JSON matching the schema. "
+    "Set print_status to critical_failure only for clear, actionable emergencies."
 )
 
 
@@ -53,48 +54,75 @@ class CerebrasVisionClient:
         self.model = model
         self._client = Cerebras(api_key=api_key)
 
-    def analyze_frame(self, image_base64: str) -> Optional[VisionAnalysis]:
+    def analyze_frame(
+        self,
+        image_base64: str,
+        on_critical_detected: Optional[Callable[[], None]] = None,
+    ) -> Optional[VisionAnalysis]:
         started = time.perf_counter()
         image_url = f"data:image/jpeg;base64,{image_base64}"
+        request_kwargs = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image_url},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Analyze this live print bed image. "
+                                "Respond with JSON only."
+                            ),
+                        },
+                    ],
+                },
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "print_analysis",
+                    "strict": True,
+                    "schema": PRINT_ANALYSIS_SCHEMA,
+                },
+            },
+            "max_completion_tokens": 192,
+            "stream": True,
+        }
+
+        content_parts: list[str] = []
+        critical_triggered = False
+        completion = None
 
         try:
-            completion = self._client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": image_url},
-                            },
-                            {
-                                "type": "text",
-                                "text": (
-                                    "Analyze this live print bed image. "
-                                    "Set print_status to critical_failure only for "
-                                    "actionable emergencies."
-                                ),
-                            },
-                        ],
-                    },
-                ],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "print_analysis",
-                        "strict": True,
-                        "schema": PRINT_ANALYSIS_SCHEMA,
-                    },
-                },
-                max_completion_tokens=256,
-            )
+            stream = self._client.chat.completions.create(**request_kwargs)
+            for chunk in stream:
+                if completion is None:
+                    completion = chunk
+
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    content_parts.append(delta)
+                    buffered = "".join(content_parts)
+                    if (
+                        not critical_triggered
+                        and (
+                            '"print_status":"critical_failure"' in buffered
+                            or '"print_status": "critical_failure"' in buffered
+                        )
+                        and on_critical_detected is not None
+                    ):
+                        critical_triggered = True
+                        on_critical_detected()
         except Exception as exc:
             logger.error("Cerebras inference failed: %s", exc)
             return None
 
-        content = completion.choices[0].message.content or "{}"
+        content = "".join(content_parts) or "{}"
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
@@ -102,6 +130,9 @@ class CerebrasVisionClient:
             return None
 
         time_info = self._extract_time_info(completion, started)
+        if critical_triggered:
+            time_info["early_halt_triggered"] = True
+
         return VisionAnalysis(
             print_status=str(parsed.get("print_status", "nominal")),
             issue_detected=bool(parsed.get("issue_detected", False)),
@@ -113,7 +144,7 @@ class CerebrasVisionClient:
     def _extract_time_info(self, completion: Any, started: float) -> dict[str, Any]:
         time_info: dict[str, Any] = {}
 
-        if hasattr(completion, "time_info") and completion.time_info is not None:
+        if completion is not None and hasattr(completion, "time_info") and completion.time_info is not None:
             if hasattr(completion.time_info, "model_dump"):
                 time_info = completion.time_info.model_dump()
             elif isinstance(completion.time_info, dict):
